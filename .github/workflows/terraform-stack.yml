@@ -1,0 +1,25 @@
+name: OpenTofu Run
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  terraform-stack:
+    uses: nuvibit/github-terraform-workflows/.github/workflows/terraform-stack.yml@v2
+    with:
+      # Workflow steps configuration
+      enable_terraform_execution: false # Spacelift handles execution
+      enable_terraform_fmt: true
+      enable_terraform_docs: false
+      enable_terraform_lint: true
+      enable_trivy_security: true
+      enable_opa_policy_check: false # Spacelift handles OPA policies
+      # Terraform configuration
+      use_opentofu: true
+      terraform_version: latest
+    secrets:
+      # GitHub App credentials used instead of default GITHUB_TOKEN
+      GH_APP_ID: ${{ secrets.GH_APP_ID }}
+      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
