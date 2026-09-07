@@ -8,31 +8,6 @@ provider "aws" {
   }
 }
 
-provider "aws" {
-  alias  = "euc1"
-  region = "eu-central-1"
-  default_tags {
-    tags = local.default_tags
-  }
-}
-
-provider "aws" {
-  alias  = "euc2"
-  region = "eu-central-2"
-  default_tags {
-    tags = local.default_tags
-  }
-}
-
-# provider for us-east-1 region is sometimes required for specific features or services
-provider "aws" {
-  alias  = "use1"
-  region = "us-east-1"
-  default_tags {
-    tags = local.default_tags
-  }
-}
-
 # ---------------------------------------------------------------------------------------------------------------------
 # ¦ REQUIREMENTS
 # ---------------------------------------------------------------------------------------------------------------------
@@ -42,7 +17,7 @@ terraform {
   required_providers {
     aws = {
       source                = "hashicorp/aws"
-      version               = "~> 5.0"
+      version               = "~> 6.0"
       configuration_aliases = []
     }
   }
@@ -59,7 +34,7 @@ data "aws_caller_identity" "current" {}
 # ---------------------------------------------------------------------------------------------------------------------
 locals {
   default_tags = {
-    ManagedBy = "OpenTofu"
-    # ProvisionedBy = "aws-xx-yyy"
+    ManagedBy     = "OpenTofu"
+    ProvisionedBy = "aws-c2-backup"
   }
 }
