@@ -59,7 +59,7 @@ data "aws_caller_identity" "current" {}
 # ---------------------------------------------------------------------------------------------------------------------
 locals {
   default_tags = {
-    ManagedBy = "OpenTofu"
+    ManagedBy     = "OpenTofu"
     ProvisionedBy = "aws-c2-backup"
   }
 }
