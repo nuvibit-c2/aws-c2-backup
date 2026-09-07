@@ -18,7 +18,7 @@ module "backup" {
   # copy/read and KMS grants in this account. Same true/false/import tradeoff as above, but for
   # `tofu import aws_iam_service_linked_role.ntc_backup_service_linked_role
   # arn:aws:iam::<ACCOUNT_ID>:role/aws-service-role/backup.amazonaws.com/AWSServiceRoleForBackup`.
-  create_backup_service_linked_role = true
+  create_backup_service_linked_role = false
 
   # -----------------------------------------------------------------------------------------------------------------
   # NOTIFICATIONS - Alert on Backup/Copy/Restore Job Failures
