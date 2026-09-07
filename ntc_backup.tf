@@ -12,13 +12,13 @@ module "backup" {
   #     `tofu import aws_iam_service_linked_role.ntc_rds_service_linked_role
   #     arn:aws:iam::<ACCOUNT_ID>:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS`.
   # -----------------------------------------------------------------------------------------------------------------
-  rds_service_linked_role_enabled = true
+  create_rds_service_linked_role = true
 
   # AWSServiceRoleForBackup: the role AWS Backup itself uses as caller identity for native-service
   # copy/read and KMS grants in this account. Same true/false/import tradeoff as above, but for
   # `tofu import aws_iam_service_linked_role.ntc_backup_service_linked_role
   # arn:aws:iam::<ACCOUNT_ID>:role/aws-service-role/backup.amazonaws.com/AWSServiceRoleForBackup`.
-  backup_service_linked_role_enabled = true
+  create_backup_service_linked_role = true
 
   # -----------------------------------------------------------------------------------------------------------------
   # NOTIFICATIONS - Alert on Backup/Copy/Restore Job Failures
