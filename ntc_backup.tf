@@ -231,7 +231,7 @@ module "ntc_backup" {
       #   - false (current value): default-deny - a resource must be tagged ntc:backup=true to be backed
       #     up at all.
       #   - true: default-allow - a resource must be tagged ntc:backup=false to opt out.
-      backup_enabled_if_untagged = false
+      backup_enabled_if_untagged = true
 
       # Scope applied to a backed-up resource with no tag_key_to_define_backup_scope tag. Only matters
       # while tag_based_selection_enabled is true; once that's false, this becomes the static, entry-wide
