@@ -42,7 +42,7 @@ terraform {
   required_providers {
     aws = {
       source                = "hashicorp/aws"
-      version               = "~> 5.0"
+      version               = "~> 6.0"
       configuration_aliases = []
     }
   }
@@ -60,6 +60,6 @@ data "aws_caller_identity" "current" {}
 locals {
   default_tags = {
     ManagedBy = "OpenTofu"
-    # ProvisionedBy = "aws-xx-yyy"
+    ProvisionedBy = "aws-c2-backup"
   }
 }
