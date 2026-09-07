@@ -1,3 +1,75 @@
+# =====================================================================================================================
+# NTC BACKUP - CENTRALIZED AWS BACKUP
+# =====================================================================================================================
+# Central backup account: aggregates recovery points from member accounts into per-entry vaults, and owns
+# the AWS Organizations BACKUP_POLICY that drives which resources those accounts back up.
+#
+# WHAT IS NTC BACKUP?
+# --------------------
+# A centralized backup account that orchestrates AWS Backup across the organization via AWS Organizations
+# BACKUP_POLICY documents, instead of configuring AWS Backup separately in every member account:
+#   • Each backup_definitions[] entry defines one central vault + KMS key, its own tag-driven selection
+#     rules, and the OUs/accounts it applies to
+#   • Member accounts back up locally first (fast operational recovery), then optionally copy into this
+#     account's central vault (durability, plus isolation from the source account)
+#   • central_vault_lock_config gives a central vault WORM-style immutability once its grace period
+#     expires - the retention floor a ransomware or compliance-driven backup strategy needs
+#
+# WHY A SEPARATE BACKUP ACCOUNT?
+# -------------------------------
+#   • Isolates recovery points from the accounts that produced them - a compromised or accidentally
+#     deleted workload account doesn't take its own backups down with it
+#   • Different account = different IAM trust boundary: the central vault policy grants workload
+#     accounts exactly one permission - backup:CopyIntoBackupVault. Even a fully compromised workload
+#     account (including its own admins) has no path to read, restore, or delete a recovery point once
+#     it has landed here
+#   • Decouples a recovery point's lifecycle from its source account's lifecycle - retention (and Vault
+#     Lock immutability) keeps running on this account's own schedule even if the workload account is
+#     later closed, suspended, or offboarded
+#   • Matches compliance frameworks (ISO 27001, FINMA) that expect backup/recovery to be demonstrably
+#     independent of the systems it protects
+#
+# PREREQUISITES:
+# ---------------
+#   • AWS Organizations must delegate to this account three separate pieces, all required:
+#       - delegated_administrators: registers this account as delegated admin for the backup.amazonaws.com
+#         service itself - without it, this account cannot act as AWS Backup's admin at all
+#       - delegation_policies (policy_types = ["BACKUP_POLICY"]): grants this account rights over
+#         Organizations' OWN policy-management APIs, scoped to BACKUP_POLICY - without it, attaching a
+#         backup_definitions[] entry's policy to an OU/account fails
+#       - backup_global_settings.enable_delegated_administrator = true (plus enable_cross_account_backup
+#         = true) - the org-wide AWS Backup settings that actually let the delegated admin manage
+#         org-wide policies and let plans copy recovery points across accounts
+#   • Every target member/workload account must already have the account factory's "backup" baseline
+#     template applied. That template creates the two things this module depends on in each account:
+#       - the member_account_backup_role_name IAM role (default "ntc-local-backup-operator-role") -
+#         AWS Backup assumes this to copy a recovery point into this account's central vault
+#       - the LOCAL vault itself ("ntc-local-backup-vault-<region>") - this module's backup plans write
+#         the first, local recovery point there before any central copy_action can run. The prefix is
+#         hardcoded on both sides (baseline template + this module) - changing it in one requires
+#         changing it in the other
+#     Without either, backup jobs fail before a copy into this account's central vault is even possible.
+#
+# HOW SELECTION WORKS:
+# ---------------------
+#   • backup_definitions[].resource_types (below) - which AWS services are eligible for backup, per entry
+#   • ntc:backup / ntc:backup-scope tags - per-resource opt-in/opt-out on top of that (or bypass entirely
+#     by setting backup_definitions[].tag_based_selection_enabled = false)
+#
+# HOW MULTI-REGION / CROSS-VAULT COPY WORKS:
+# --------------------------------------------
+#   • One backup_definitions[] entry creates its own central vault + KMS key, named after that entry's
+#     `name` (not its `region`) - multiple entries CAN share a region if you ever need more than one
+#     central vault there (e.g. different retention/lock per workload tier)
+#   • backup_definitions[].copy_to_backup_definition_by_name is the opt-in exception that ALSO copies an entry's
+#     backups into another entry's vault (by name, not region) - destination must also have its own
+#     backup_definitions[] entry
+#
+# =====================================================================================================================
+
+# =====================================================================================================================
+# NTC BACKUP MODULE
+# =====================================================================================================================
 module "backup" {
   source = "github.com/nuvibit-terraform-collection/terraform-aws-ntc-backup?ref=feature/initial-release"
 
