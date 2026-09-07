@@ -164,10 +164,15 @@ module "backup" {
       # -----------------------------------------------------------------------------------------------------------
       # Member Account Role
       # -----------------------------------------------------------------------------------------------------------
-      # Must match backup_operator_iam_role_name / malware_scan_scanner_iam_role_name from the "backup"
-      # baseline template applied in step 1
+      # The EXACT IAM role name that MUST exist in ALL member accounts targeted below, in order to copy
+      # backups into this vault. Not a role in this account - the role every member account creates via
+      # the backup baseline-template.
       # -----------------------------------------------------------------------------------------------------------
-      member_account_backup_role_name          = "ntc-local-backup-operator-role"
+      member_account_backup_role_name = "ntc-local-backup-operator-role"
+
+      # Same idea as member_account_backup_role_name above, but the role AWS Backup passes to GuardDuty
+      # when initiating a scan - must match the local scanner role every member account creates via the
+      # backup baseline-template.
       member_account_malware_scanner_role_name = "ntc-local-backup-malware-scanner-role"
 
       # -----------------------------------------------------------------------------------------------------------
@@ -192,6 +197,9 @@ module "backup" {
       # -----------------------------------------------------------------------------------------------------------
       # Account Targeting
       # -----------------------------------------------------------------------------------------------------------
+      # OU path IDs (without trailing "/*") in scope for this entry - used both for the vault/KMS trust
+      # policy condition (as the full path ID) and to attach the central BACKUP_POLICY document (the
+      # module derives the bare OU ID itself, so only the path ID format needs passing in here).
       backup_target_ou_path_ids = [
         local.ntc_parameters["mgmt-organizations"]["ou_path_ids"]["/root/workloads/prod"]
       ]
