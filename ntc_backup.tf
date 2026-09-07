@@ -61,16 +61,26 @@ module "backup" {
       # -----------------------------------------------------------------------------------------------------------
       # Vault Lock - Compliance/Immutability (Optional)
       # -----------------------------------------------------------------------------------------------------------
-      # min/max_retention_days only bound what a recovery point's OWN retention is allowed to be, they
-      # don't set it - that comes from central_backup_vault_retention_days below, which must fall within
-      # [min_retention_days, max_retention_days] once the lock is enabled.
-      # During changeable_for_days, the lock config here can still be freely tightened, loosened, or
-      # removed. WARNING: once changeable_for_days expires, the lock becomes PERMANENT - from then on it
-      # can only be tightened (raise min / lower max), never loosened or disabled. Keep disabled until
-      # backup/restore workflows are validated.
+      # Backup Vault Lock for this entry's CENTRAL vault only - the local vault is never locked by this
+      # module. The lock protects individual recovery points from deletion until their own retention
+      # expires, it does not pin the vault itself - the vault (locked or not) can only be deleted once it
+      # holds no recovery points anymore.
+      #   - enabled: turns the lock on for this entry's central vault.
+      #   - min_retention_days: shortest retention any backup/copy job's lifecycle may specify once the
+      #     lock is active - jobs requesting less fail.
+      #   - max_retention_days: longest retention any backup/copy job's lifecycle may specify once the
+      #     lock is active - jobs requesting more fail. central_backup_vault_retention_days below must fall
+      #     within [min_retention_days, max_retention_days].
+      #   - changeable_for_days: grace period during which this lock config can still be freely tightened,
+      #     loosened, or removed. WARNING: once it expires, the lock becomes PERMANENT - from then on it
+      #     can only be tightened (raise min / lower max), never loosened or disabled, even by the account
+      #     root user. Keep disabled until backup/restore workflows are validated.
       # -----------------------------------------------------------------------------------------------------------
       central_vault_lock_config = {
-        enabled = false # only activate if you want the central vault to have a lock config
+        enabled             = false
+        min_retention_days  = 10
+        max_retention_days  = 90
+        changeable_for_days = 30
       }
 
       # -----------------------------------------------------------------------------------------------------------
@@ -113,6 +123,9 @@ module "backup" {
       backup_target_ou_path_ids = [
         local.ntc_parameters["mgmt-organizations"]["ou_path_ids"]["/root/workloads/prod"]
       ]
+      # Explicitly listed member account IDs in scope for this entry - used both for the vault/KMS trust
+      # policy condition and to attach the central BACKUP_POLICY document. Can be empty if all member
+      # accounts are covered by the OU path(s) above.
       backup_target_account_ids = []
 
       # -----------------------------------------------------------------------------------------------------------
