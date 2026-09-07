@@ -1,3 +1,75 @@
+# =====================================================================================================================
+# NTC BACKUP - CENTRALIZED AWS BACKUP
+# =====================================================================================================================
+# Central backup account: aggregates recovery points from member accounts into per-entry vaults, and owns
+# the AWS Organizations BACKUP_POLICY that drives which resources those accounts back up.
+#
+# WHAT IS NTC BACKUP?
+# --------------------
+# A centralized backup account that orchestrates AWS Backup across the organization via AWS Organizations
+# BACKUP_POLICY documents, instead of configuring AWS Backup separately in every member account:
+#   • Each backup_definitions[] entry defines one central vault + KMS key, its own tag-driven selection
+#     rules, and the OUs/accounts it applies to
+#   • Member accounts back up locally first (fast operational recovery), then optionally copy into this
+#     account's central vault (durability, plus isolation from the source account)
+#   • central_vault_lock_config gives a central vault WORM-style immutability once its grace period
+#     expires - the retention floor a ransomware or compliance-driven backup strategy needs
+#
+# WHY A SEPARATE BACKUP ACCOUNT?
+# -------------------------------
+#   • Isolates recovery points from the accounts that produced them - a compromised or accidentally
+#     deleted workload account doesn't take its own backups down with it
+#   • Different account = different IAM trust boundary: the central vault policy grants workload
+#     accounts exactly one permission - backup:CopyIntoBackupVault. Even a fully compromised workload
+#     account (including its own admins) has no path to read, restore, or delete a recovery point once
+#     it has landed here
+#   • Decouples a recovery point's lifecycle from its source account's lifecycle - retention (and Vault
+#     Lock immutability) keeps running on this account's own schedule even if the workload account is
+#     later closed, suspended, or offboarded
+#   • Matches compliance frameworks (ISO 27001, FINMA) that expect backup/recovery to be demonstrably
+#     independent of the systems it protects
+#
+# PREREQUISITES:
+# ---------------
+#   • AWS Organizations must delegate to this account three separate pieces, all required:
+#       - delegated_administrators: registers this account as delegated admin for the backup.amazonaws.com
+#         service itself - without it, this account cannot act as AWS Backup's admin at all
+#       - delegation_policies (policy_types = ["BACKUP_POLICY"]): grants this account rights over
+#         Organizations' OWN policy-management APIs, scoped to BACKUP_POLICY - without it, attaching a
+#         backup_definitions[] entry's policy to an OU/account fails
+#       - backup_global_settings.enable_delegated_administrator = true (plus enable_cross_account_backup
+#         = true) - the org-wide AWS Backup settings that actually let the delegated admin manage
+#         org-wide policies and let plans copy recovery points across accounts
+#   • Every target member/workload account must already have the account factory's "backup" baseline
+#     template applied. That template creates the two things this module depends on in each account:
+#       - the member_account_backup_role_name IAM role (default "ntc-local-backup-operator-role") -
+#         AWS Backup assumes this to copy a recovery point into this account's central vault
+#       - the LOCAL vault itself ("ntc-local-backup-vault-<region>") - this module's backup plans write
+#         the first, local recovery point there before any central copy_action can run. The prefix is
+#         hardcoded on both sides (baseline template + this module) - changing it in one requires
+#         changing it in the other
+#     Without either, backup jobs fail before a copy into this account's central vault is even possible.
+#
+# HOW SELECTION WORKS:
+# ---------------------
+#   • backup_definitions[].resource_types (below) - which AWS services are eligible for backup, per entry
+#   • ntc:backup / ntc:backup-scope tags - per-resource opt-in/opt-out on top of that (or bypass entirely
+#     by setting backup_definitions[].tag_based_selection_enabled = false)
+#
+# HOW MULTI-REGION / CROSS-VAULT COPY WORKS:
+# --------------------------------------------
+#   • One backup_definitions[] entry creates its own central vault + KMS key, named after that entry's
+#     `name` (not its `region`) - multiple entries CAN share a region if you ever need more than one
+#     central vault there (e.g. different retention/lock per workload tier)
+#   • backup_definitions[].copy_to_backup_definition_by_name is the opt-in exception that ALSO copies an entry's
+#     backups into another entry's vault (by name, not region) - destination must also have its own
+#     backup_definitions[] entry
+#
+# =====================================================================================================================
+
+# =====================================================================================================================
+# NTC BACKUP MODULE
+# =====================================================================================================================
 module "backup" {
   source = "github.com/nuvibit-terraform-collection/terraform-aws-ntc-backup?ref=feature/initial-release"
 
@@ -61,16 +133,26 @@ module "backup" {
       # -----------------------------------------------------------------------------------------------------------
       # Vault Lock - Compliance/Immutability (Optional)
       # -----------------------------------------------------------------------------------------------------------
-      # min/max_retention_days only bound what a recovery point's OWN retention is allowed to be, they
-      # don't set it - that comes from central_backup_vault_retention_days below, which must fall within
-      # [min_retention_days, max_retention_days] once the lock is enabled.
-      # During changeable_for_days, the lock config here can still be freely tightened, loosened, or
-      # removed. WARNING: once changeable_for_days expires, the lock becomes PERMANENT - from then on it
-      # can only be tightened (raise min / lower max), never loosened or disabled. Keep disabled until
-      # backup/restore workflows are validated.
+      # Backup Vault Lock for this entry's CENTRAL vault only - the local vault is never locked by this
+      # module. The lock protects individual recovery points from deletion until their own retention
+      # expires, it does not pin the vault itself - the vault (locked or not) can only be deleted once it
+      # holds no recovery points anymore.
+      #   - enabled: turns the lock on for this entry's central vault.
+      #   - min_retention_days: shortest retention any backup/copy job's lifecycle may specify once the
+      #     lock is active - jobs requesting less fail.
+      #   - max_retention_days: longest retention any backup/copy job's lifecycle may specify once the
+      #     lock is active - jobs requesting more fail. central_backup_vault_retention_days below must fall
+      #     within [min_retention_days, max_retention_days].
+      #   - changeable_for_days: grace period during which this lock config can still be freely tightened,
+      #     loosened, or removed. WARNING: once it expires, the lock becomes PERMANENT - from then on it
+      #     can only be tightened (raise min / lower max), never loosened or disabled, even by the account
+      #     root user. Keep disabled until backup/restore workflows are validated.
       # -----------------------------------------------------------------------------------------------------------
       central_vault_lock_config = {
-        enabled = false # only activate if you want the central vault to have a lock config
+        enabled             = false
+        min_retention_days  = 10
+        max_retention_days  = 90
+        changeable_for_days = 30
       }
 
       # -----------------------------------------------------------------------------------------------------------
@@ -82,10 +164,15 @@ module "backup" {
       # -----------------------------------------------------------------------------------------------------------
       # Member Account Role
       # -----------------------------------------------------------------------------------------------------------
-      # Must match backup_operator_iam_role_name / malware_scan_scanner_iam_role_name from the "backup"
-      # baseline template applied in step 1
+      # The EXACT IAM role name that MUST exist in ALL member accounts targeted below, in order to copy
+      # backups into this vault. Not a role in this account - the role every member account creates via
+      # the backup baseline-template.
       # -----------------------------------------------------------------------------------------------------------
-      member_account_backup_role_name          = "ntc-local-backup-operator-role"
+      member_account_backup_role_name = "ntc-local-backup-operator-role"
+
+      # Same idea as member_account_backup_role_name above, but the role AWS Backup passes to GuardDuty
+      # when initiating a scan - must match the local scanner role every member account creates via the
+      # backup baseline-template.
       member_account_malware_scanner_role_name = "ntc-local-backup-malware-scanner-role"
 
       # -----------------------------------------------------------------------------------------------------------
@@ -110,9 +197,15 @@ module "backup" {
       # -----------------------------------------------------------------------------------------------------------
       # Account Targeting
       # -----------------------------------------------------------------------------------------------------------
+      # OU path IDs (without trailing "/*") in scope for this entry - used both for the vault/KMS trust
+      # policy condition (as the full path ID) and to attach the central BACKUP_POLICY document (the
+      # module derives the bare OU ID itself, so only the path ID format needs passing in here).
       backup_target_ou_path_ids = [
         local.ntc_parameters["mgmt-organizations"]["ou_path_ids"]["/root/workloads/prod"]
       ]
+      # Explicitly listed member account IDs in scope for this entry - used both for the vault/KMS trust
+      # policy condition and to attach the central BACKUP_POLICY document. Can be empty if all member
+      # accounts are covered by the OU path(s) above.
       backup_target_account_ids = []
 
       # -----------------------------------------------------------------------------------------------------------
