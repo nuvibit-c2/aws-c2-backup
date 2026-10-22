@@ -211,7 +211,10 @@ module "ntc_backup" {
       # Explicitly listed member account IDs in scope for this entry - used both for the vault/KMS trust
       # policy condition and to attach the central BACKUP_POLICY document. Can be empty if all member
       # accounts are covered by the OU path(s) above.
-      backup_target_account_ids = []
+      backup_target_account_ids = [
+        # management account sits directly under /root, outside every OU, so OU path targeting never covers it
+        local.ntc_parameters["mgmt-account-factory"]["core_accounts"]["aws-c2-management"]
+      ]
 
       # -----------------------------------------------------------------------------------------------------------
       # Tag-Based Resource Selection
