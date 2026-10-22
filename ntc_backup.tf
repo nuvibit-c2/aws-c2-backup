@@ -213,6 +213,7 @@ module "ntc_backup" {
       # accounts are covered by the OU path(s) above.
       backup_target_account_ids = [
         # management account sits directly under /root, outside every OU, so OU path targeting never covers it
+        # requires the "backup" baseline template to be rolled out in the management account as well
         local.ntc_parameters["mgmt-account-factory"]["core_accounts"]["aws-c2-management"]
       ]
 
