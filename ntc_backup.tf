@@ -76,7 +76,7 @@ moved {
 # NTC BACKUP MODULE
 # =====================================================================================================================
 module "ntc_backup" {
-  source = "github.com/nuvibit-terraform-collection/terraform-aws-ntc-backup?ref=1.0.0"
+  source = "github.com/nuvibit-terraform-collection/terraform-aws-ntc-backup?ref=1.0.1"
 
   # -----------------------------------------------------------------------------------------------------------------
   # SERVICE-LINKED ROLES - Prerequisites for Cross-Service Backup/Copy Operations
